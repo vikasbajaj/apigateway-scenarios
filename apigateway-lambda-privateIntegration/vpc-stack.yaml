@@ -1,0 +1,315 @@
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project name to link stacks
+  APIStageName:
+    Type: "String"
+    AllowedPattern: "^[a-z0-9]+$"
+    Default: "demo"
+  VpcCIDR: 
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnetCIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.1.0/24
+  PrivateSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.3.0/24
+  PrivateSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+    Type: String
+    Default: 10.0.4.0/24
+  KeyPair:
+    Description: Keypair to login into Bastion Host and Service Consumer host
+    Type: String
+  LambdaFunctionBucket:
+    Type: String
+    Description: Bucket that contains Lambda function code
+  EC2Ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Description: EC2 AMI ID
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+Resources:
+  VPC: 
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      Tags: 
+      - Key: Name 
+        Value: !Ref ProjectName
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Ref ProjectName
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+  PublicSubnet: 
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: !Ref PublicSubnetCIDR
+      MapPublicIpOnLaunch: true
+      Tags: 
+      - Key: Name 
+        Value: !Sub '${ProjectName} Public Subnet (AZ1)'
+  PrivateSubnet1: 
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      MapPublicIpOnLaunch: false
+      Tags: 
+      - Key: Name 
+        Value: !Sub '${ProjectName} Private Subnet (AZ1)'
+  PrivateSubnet2: 
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      MapPublicIpOnLaunch: false
+      Tags: 
+      - Key: Name 
+        Value: !Sub '${ProjectName} Private Subnet (AZ2)'
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref VPC
+      Tags: 
+      - Key: Name 
+        Value: !Sub '${ProjectName} Public Routes'
+  PublicRoute: 
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref VPC
+      Tags: 
+      - Key: Name 
+        Value: !Sub '${ProjectName} Private Routes (AZ1)'
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref VPC
+      Tags: 
+      - Key: Name 
+        Value: !Sub '${ProjectName} Private Routes (AZ2)'
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Allows SSH access'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+  ENISecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: vpc tester sg
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        SourceSecurityGroupId: 
+          Fn::GetAtt: [ BastionSecurityGroup , GroupId ]
+  ENISecurityGroupingress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: ENISecurityGroup
+    Properties:
+      GroupId:
+        Ref: ENISecurityGroup
+      IpProtocol: tcp
+      FromPort: '0'
+      ToPort: '65535'
+      SourceSecurityGroupId:
+        Ref: ENISecurityGroup
+  BastionHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref EC2Ami
+      InstanceType: t2.micro
+      KeyName: !Ref KeyPair
+      SecurityGroupIds:
+      - !Ref BastionSecurityGroup
+      SubnetId: !Ref PublicSubnet
+  APICallerHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref EC2Ami
+      InstanceType: t2.micro
+      KeyName: !Ref KeyPair
+      SecurityGroupIds:
+      - !Ref ENISecurityGroup
+      SubnetId: !Ref PrivateSubnet1
+  LambdaIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Lambda-Access-VPC-Resources
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: LambdaLogging
+                Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource:
+                  - 'arn:aws:logs:*:*:*'
+              - Sid: S3
+                Action:
+                  - 'ec2:DescribeNetworkInterfaces'
+                  - 'ec2:CreateNetworkInterface'
+                  - 'ec2:DeleteNetworkInterface'
+                  - 'ec2:DescribeInstances'
+                  - 'ec2:AttachNetworkInterface'
+                Effect: Allow
+                Resource: '*'
+  LambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: Lambda Function associated with VPC
+      Code:
+        S3Bucket: !Ref LambdaFunctionBucket
+        S3Key: private_lambda.zip
+      FunctionName: private_lambda
+      Handler: private_lambda.lambda_handler
+      MemorySize: 128
+      Role: !GetAtt LambdaIAMRole.Arn
+      Runtime: python3.8
+      Timeout: 300
+      VpcConfig:
+        SecurityGroupIds: 
+        #- !GetAtt VPC.DefaultSecurityGroup
+        - !Ref ENISecurityGroup
+        SubnetIds: 
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  LambdaFunctionPermissions:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+    - LambdaFunction
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LambdaFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+        - ""
+        - - 'arn:aws:execute-api:'
+          - !Ref AWS::Region
+          - ':'
+          - !Ref AWS::AccountId
+          - ':'
+          - !Ref LambdaCallerAPI
+          - '/*/GET/democall'
+  LambdaCallerAPIVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      PrivateDnsEnabled: true
+      SecurityGroupIds: 
+      - Fn::GetAtt: [ENISecurityGroup, GroupId]
+      ServiceName:
+        Fn::Join:
+          - "" 
+          - - 'com.amazonaws.'
+            - !Ref AWS::Region
+            - '.'
+            - 'execute-api'
+      SubnetIds: 
+      - !Ref PrivateSubnet1
+      - !Ref PrivateSubnet2
+      VpcEndpointType: Interface
+      VpcId: !Ref VPC
+  LambdaCallerAPI:  
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Policy:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal: "*"
+          Action: execute-api:Invoke
+          Resource:
+          - execute-api:/*
+          Condition:
+            StringEquals:
+              aws:SourceVpce: !Ref LambdaCallerAPIVPCEndpoint
+      Name: "Lambda Caller API"
+      Description: "Invokes Lambda associated with VPC"
+      EndpointConfiguration:
+        Types:
+        - PRIVATE
+        VpcEndpointIds:
+        - !Ref LambdaCallerAPIVPCEndpoint
+  APIResource:  
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref LambdaCallerAPI
+      ParentId: !GetAtt "LambdaCallerAPI.RootResourceId"
+      PathPart: democall
+  APIResourceHTTPMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      ResourceId: !Ref "APIResource"
+      RestApiId: !Ref "LambdaCallerAPI"
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: "AWS_PROXY"
+        Uri: !Sub
+          - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${getImageLambdaFunctionArn}/invocations"
+          - getImageLambdaFunctionArn: !GetAtt "LambdaFunction.Arn"
+  APIDeployment:
+    Type: "AWS::ApiGateway::Deployment"
+    DependsOn:
+      - APIResourceHTTPMethod
+    Properties:
+      RestApiId: !Ref LambdaCallerAPI
+      StageName: !Ref APIStageName
+      
