@@ -9,7 +9,6 @@ This covers how to deploy private APIGateway REST API using AWS PrivateLink and 
 - change directory to this example
 - update vars.env with values specific to your environment
     - PROJECT_NAME=demoproject
-    - AWS_ACCOUNT_ID={this is your AWS Account ID where you will run this}
     - KEY_PAIR=EC2 Keypair name in your AWS Account Id, this is required to login to Bastion host and to API Gateway caller EC2 host
     - AWS_PROFILE=Name of your AWS profile that points to your AWS Account. You can set AWS profile using ***aws configure --profile profile_name** e.g. aws configure --profile practice_account, use practice_account as a value for AWS_PROFILE 
     - LAMBDA_FUNCTION_BUCKET=S3 bcuket where you want to upload your Lambda function
