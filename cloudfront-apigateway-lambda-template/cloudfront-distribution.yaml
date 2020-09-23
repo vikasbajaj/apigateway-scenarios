@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFront APIGateway and Lambda Integration template"
+Parameters:
+  APIStageName:
+    Type: "String"
+    Default: "demo"
+  LambdaFunctionName:
+    Type: "String"
+    Default: "DemoLambda"
+  LambdaFunctionBucketName:
+    Type: String
+    Description: Lambda function bucket name
+Resources:
+  LambdaServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Action:
+            - "sts:AssumeRole"
+          Effect: "Allow"
+          Principal:
+            Service:
+              - "lambda.amazonaws.com"
+      Policies:
+      - PolicyName: "LambdaServiceRolePolicy"
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Action:
+                - "logs:CreateLogGroup"
+                - "logs:CreateLogStream"
+                - "logs:PutLogEvents"
+              Effect: "Allow"
+              Resource:
+                - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${LambdaFunctionName}:*"
+  SampleAPI:  
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Name: "sampleapi"
+      Description: "Sample API calls a lambda"
+      EndpointConfiguration:
+        Types:
+        - REGIONAL
+  SampleAPIResource:  
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref SampleAPI
+      ParentId: !GetAtt "SampleAPI.RootResourceId"
+      #PathPart: images
+      PathPart: democall
+  SampleAPIResourceHTTPMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      HttpMethod: "GET"
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS_PROXY"
+        Uri: !Sub
+          - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations"
+          - lambdaArn: !GetAtt "LambdaFunction.Arn"
+      ResourceId: !Ref "SampleAPIResource"
+      RestApiId: !Ref "SampleAPI"
+  SampleAPIDeployment:
+    Type: "AWS::ApiGateway::Deployment"
+    DependsOn:
+    - SampleAPIResourceHTTPMethod
+    Properties:
+      RestApiId: !Ref "SampleAPI"
+      StageName: !Ref "APIStageName"
+  LambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Code:
+        S3Bucket: !Ref LambdaFunctionBucketName
+        S3Key: demo_lambda.zip
+      Description: "demo_lambda"
+      FunctionName: !Ref "LambdaFunctionName"
+      Handler: demo_lambda.lambda_handler
+      MemorySize: 128
+      Role: !GetAtt "LambdaServiceRole.Arn"
+      Runtime: python3.8
+      Timeout: 10
+  LambdaLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LambdaFunctionName}"
+      RetentionInDays: 90
+  LambdaPermissions:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+    - LambdaFunction
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LambdaFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+        - ""
+        - - 'arn:aws:execute-api:'
+          - !Ref AWS::Region
+          - ':'
+          - !Ref AWS::AccountId
+          - ':'
+          - !Ref SampleAPI
+          #- '/*/GET/images'
+          - '/*/GET/democall'
+  CloudFront:  
+    Type: AWS::CloudFront::Distribution
+    DependsOn: SampleAPI
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+          MinimumProtocolVersion: TLSv1.2_2018
+        Origins:
+        - Id: APIGOrigin
+          DomainName: !Sub
+            - ${apigId}.execute-api.${AWS::Region}.amazonaws.com
+            - { apigId: !Ref SampleAPI }
+          OriginPath: !Sub
+            - /${Stage}
+            - { Stage: !Ref APIStageName }
+          CustomOriginConfig:
+            HTTPSPort: 443
+            OriginProtocolPolicy: https-only
+        DefaultCacheBehavior:
+          AllowedMethods: ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+          CachedMethods: ["GET", "HEAD"]
+          ForwardedValues:
+            Headers:
+            - Access-Control-Request-Headers
+            - Access-Control-Request-Method
+            - Origin
+            QueryString: true
+          TargetOriginId: APIGOrigin
+          ViewerProtocolPolicy: https-only
+          Compress: true
+          DefaultTTL: 0
+Outputs:
+  distributionDomain:
+    Value: !GetAtt "CloudFront.DomainName"
