@@ -41,7 +41,7 @@ deploy_distribution(){
     aws cloudformation deploy \
         --no-fail-on-empty-changeset \
         --stack-name "${PROJECT_NAME}-distribution" \
-        --template-file "${DIR}/cloudfront-distribution.yaml" \
+        --template-file "${DIR}/cloudfront-distribution-post.yml" \
         --capabilities CAPABILITY_IAM \
         --parameter-overrides "ProjectName=${PROJECT_NAME}" "LambdaFunctionBucketName=${LAMBDA_FUNCTION_BUCKET_NAME}"
 }

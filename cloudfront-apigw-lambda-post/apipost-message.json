@@ -1,0 +1,35 @@
+{
+    "system":"FXMicro",
+    "date":"10-Nov-2020",
+    "messages":[
+        {
+          "message": {
+              "transactiongroup":"tx-1",
+              "transactionidentifier":"T-017",
+              "transactiontype":"debit"
+          }
+        },
+        {
+          "message": {
+              "transactiongroup":"tx-2",
+              "transactionidentifier":"T-018",
+              "transactiontype":"debit"
+          }
+        },
+        {
+          "message": {
+              "transactiongroup":"tx-1",
+              "transactionidentifier":"T-019",
+              "transactiontype":"credit"
+  
+          }
+        },
+        {
+          "message": {
+              "transactiongroup":"tx-1",
+              "transactionidentifier":"T-020",
+              "transactiontype":"debit"
+          }
+        }
+    ]
+   }
